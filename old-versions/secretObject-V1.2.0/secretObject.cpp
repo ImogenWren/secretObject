@@ -1,5 +1,5 @@
 
-/* Class for managing storing and retreving memStruc_t data from persistant memory
+/* Class for managing storing and retreving calibration data from persistant memory
 
 
 Origional Method developed by: David Reid
@@ -10,83 +10,40 @@ Further Development: Imogen Wren
 */
 
 #include "secretObject.h"
-
-#ifdef __AVR__
-#pragma message "secretObject Compiled for AVR"
 #include <EEPROM.h>
-#elif defined(ARDUINO_ARCH_SAMD) || defined(ARDUINO_ARCH_SAM)
-#pragma message "secretObject Compiled for SAMD"
-#include <FlashStorage.h>  // for SAMD21
-FlashStorage(flash, secretObject::memStruc_t);
-#endif
-
 
 secretObject::secretObject() {
 }
 
 
-
-// Helper Functions
-void secretObject::memory_write(secretObject::memStruc_t new_data) {  // System agnostic helper function for memory writes (only need to update this function to add additional methods for different systems)
-#ifdef __AVR__
-  EEPROM.put(EEPROM_START_ADDRESS, new_data);
-#elif defined(ARDUINO_ARCH_SAMD) || defined(ARDUINO_ARCH_SAM)
-  flash.write(new_data);
-#endif
-}
-
-secretObject::memStruc_t secretObject::memory_get() {
-  memStruc_t recalled_data = {};
-#ifdef __AVR__
-  EEPROM.get(EEPROM_START_ADDRESS, recalled_data);
-#elif defined(ARDUINO_ARCH_SAMD) || defined(ARDUINO_ARCH_SAM)
-  recalled_data = flash.read();
-#endif
-  return recalled_data;
-}
-
-
 bool secretObject::cal_is_secure() {
   // cal = cal_store.read();
-  //memStruc_t cal_read;
-  //EEPROM.get(EEPROM_START_ADDRESS, cal);
-  cal = secretObject::memory_get();
+  //Calibration cal_read;
+  EEPROM.get(EEPROM_START_ADDRESS, cal);
   bool signature_matched = (cal.signature == WRITTEN_SIGNATURE);
   return (cal.secure && signature_matched);
 }
 
 bool secretObject::cal_is_valid() {
   // cal = cal_store.read();
-  // EEPROM.get(EEPROM_START_ADDRESS, cal);
-  cal = secretObject::memory_get();
+  EEPROM.get(EEPROM_START_ADDRESS, cal);
   bool signature_matched = (cal.signature == WRITTEN_SIGNATURE);
   return (cal.secure && cal.calValid && signature_matched);
 }
 
 bool secretObject::settings_valid() {
   // cal = cal_store.read();
-  // EEPROM.get(EEPROM_START_ADDRESS, cal);
-  cal = secretObject::memory_get();
+  EEPROM.get(EEPROM_START_ADDRESS, cal);
   bool signature_matched = (cal.signature == WRITTEN_SIGNATURE);
   return (cal.secure && secretObject::is_valid(&cal.settingsValid, 0b1111) && signature_matched);
 }
 
-bool secretObject::check_secret(const char *secret) {
-  cal = secretObject::memory_get();
-  if (!(strcmp(cal.secret, secret) == 0)) {
-    Serial.println(F("{\"ERROR\":\"wrong secret\"}"));
-    return 0;  // don't set values if auth code does not match secret
-  } else {
-    return 1;
-  }
-}
 
 
-secretObject::calStruc_t secretObject::get_cal() {
-  calStruc_t memContents = { false, 0 };
+secretObject::calStruc secretObject::get_cal() {
+  calStruc memContents = { false, 0 };
   // cal = cal_store.read();
-  // EEPROM.get(EEPROM_START_ADDRESS, cal);
-  cal = secretObject::memory_get();
+  EEPROM.get(EEPROM_START_ADDRESS, cal);
 
   secretObject::report_cal();
 
@@ -115,12 +72,11 @@ secretObject::calStruc_t secretObject::get_cal() {
 
 
 //#TODO FIX THIS FUNCTION ->--ON WEDNESDAY---------------------------------------------------------------------------------------
-secretObject::settingsStruc_t secretObject::get_settings() {
+secretObject::settingsStruc secretObject::get_settings() {
   // create empty structure for passing settings out of lib
-  settingsStruc_t newSettings = { 0b0000, "", "", 0, 0 };
+  settingsStruc newSettings = { 0b0000, "", "", 0, 0 };
   // get the EEPROM contents
-  // EEPROM.get(EEPROM_START_ADDRESS, cal);
-  cal = secretObject::memory_get();
+  EEPROM.get(EEPROM_START_ADDRESS, cal);
 
   // Report mem contents to user?
   secretObject::report_cal();       // cal yes as this is used just for validation at this stage
@@ -156,8 +112,7 @@ void secretObject::set_secret(const char *secret) {
     return;  //empty string
   }
   //cal = cal_store.read();
-  // EEPROM.get(EEPROM_START_ADDRESS, cal);
-  cal = secretObject::memory_get();
+  EEPROM.get(EEPROM_START_ADDRESS, cal);
   if (cal.secure && cal.signature == WRITTEN_SIGNATURE) {  // only set secret once
     Serial.println(F("{\"ERROR\":\"secret already set\"}"));
   } else {
@@ -168,8 +123,7 @@ void secretObject::set_secret(const char *secret) {
     cal.signature = WRITTEN_SIGNATURE;
     cal.calValid = false;  // cal cannot be valid if just writing signature
     cal.settingsValid = 0b0000;
-    //EEPROM.put(EEPROM_START_ADDRESS, cal);
-    secretObject::memory_write(cal);
+    EEPROM.put(EEPROM_START_ADDRESS, cal);
     // cal_store.write(cal);
     Serial.println(F("{\"INFO\":\"secret set\"}"));
   }
@@ -179,23 +133,23 @@ void secretObject::set_secret(const char *secret) {
 
 // NEW -> Check function
 // modified so passed value instead of relying on user updating value then reading global
-bool secretObject::cal_pre_check(secretObject::memStruc_t _cal, const char *secret) {
-  if (!_cal.secure) {
+bool secretObject::cal_pre_check(secretObject::Calibration calStruc, const char *secret) {
+  if (!calStruc.secure) {
     Serial.println(F("{\"ERROR\":\"cal_set -> cal secret not set\"}"));
     return 0;  // don't set values before setting authorisation (prevent rogue writes)
   }
 
-  if (_cal.writes <= 0) {
+  if (calStruc.writes <= 0) {
     Serial.println(F("{\"ERROR\":\"cal_set -> no more cal writes permitted - reflash firmware to reset counter\"}"));
     return 0;  // prevent writes if remaining write count has reached zero
   }
 
-  if (!(strcmp(_cal.secret, secret) == 0)) {
+  if (!(strcmp(calStruc.secret, secret) == 0)) {
     Serial.println(F("{\"ERROR\":\"cal_set -> wrong secret\"}"));
     return 0;  // don't set values if auth code does not match secret
   }
 
-  if (_cal.signature != WRITTEN_SIGNATURE) {
+  if (calStruc.signature != WRITTEN_SIGNATURE) {
     Serial.println(F("{\"ERROR\":\"cal_set -> written signature does not match\"}"));
     return 0;  // don't set values if auth code does not match secret auth code (set when first writing secret)
   }
@@ -208,9 +162,8 @@ bool secretObject::cal_pre_check(secretObject::memStruc_t _cal, const char *secr
 //## MODIFIED -> Check Function
 void secretObject::set_cal_value(int16_t calValue, const char *secret) {
   //cal = cal_store.read();
-  // get the memStruc_t structure from persistant memory
-  // EEPROM.get(EEPROM_START_ADDRESS, cal);
-  cal = secretObject::memory_get();
+  // get the Calibration structure from persistant memory
+  EEPROM.get(EEPROM_START_ADDRESS, cal);
 
   // do the precondition check
   if (!secretObject::cal_pre_check(cal, secret)) {
@@ -244,8 +197,7 @@ void secretObject::set_cal_value(int16_t calValue, const char *secret) {
 
   // store the data back into persistant memory
   //cal_store.write(cal);
-  // EEPROM.put(EEPROM_START_ADDRESS, cal);
-  secretObject::memory_write(cal);
+  EEPROM.put(EEPROM_START_ADDRESS, cal);
 }
 
 
@@ -253,9 +205,9 @@ void secretObject::set_cal_value(int16_t calValue, const char *secret) {
 
 
 void secretObject::set_settings_data(const char *material, const char *diameter, int16_t angleMax, int16_t loadMax, const char *secret) {
-  // get the memStruc_t structure from persistant memory
-  //EEPROM.get(EEPROM_START_ADDRESS, cal);
-  cal = secretObject::memory_get();
+  // get the Calibration structure from persistant memory
+  EEPROM.get(EEPROM_START_ADDRESS, cal);
+
   // do the precondition check
   if (!secretObject::cal_pre_check(cal, secret)) {
     return;  // if precheck fails, exit
@@ -279,8 +231,7 @@ void secretObject::set_settings_data(const char *material, const char *diameter,
 
 
   // store the data back into persistant memory
-  // EEPROM.put(EEPROM_START_ADDRESS, cal);
-  secretObject::memory_write(cal);
+  EEPROM.put(EEPROM_START_ADDRESS, cal);
 }
 
 
@@ -288,9 +239,9 @@ void secretObject::set_settings_data(const char *material, const char *diameter,
 
 
 void secretObject::set_material(const char *material, const char *secret) {  // These individal functions are going to be the only way to implement this if using JSONmessenger for now
-                                                                             // get the memStruc_t structure from persistant memory
-                                                                             // EEPROM.get(EEPROM_START_ADDRESS, cal);
-  cal = secretObject::memory_get();
+                                                                             // get the Calibration structure from persistant memory
+  EEPROM.get(EEPROM_START_ADDRESS, cal);
+
   // do the precondition check
   if (!secretObject::cal_pre_check(cal, secret)) {
     return;  // if precheck fails, exit
@@ -315,16 +266,14 @@ void secretObject::set_material(const char *material, const char *secret) {  // 
 
 
   // store the data back into persistant memory
-  // EEPROM.put(EEPROM_START_ADDRESS, cal);
-  secretObject::memory_write(cal);
+  EEPROM.put(EEPROM_START_ADDRESS, cal);
 }
 
 
 
 void secretObject::set_diameter(const char *diameter, const char *secret) {
-  // get the memStruc_t structure from persistant memory
-  // EEPROM.get(EEPROM_START_ADDRESS, cal);
-  cal = secretObject::memory_get();
+  // get the Calibration structure from persistant memory
+  EEPROM.get(EEPROM_START_ADDRESS, cal);
 
   // do the precondition check
   if (!secretObject::cal_pre_check(cal, secret)) {
@@ -348,16 +297,14 @@ void secretObject::set_diameter(const char *diameter, const char *secret) {
   secretObject::report_settings();
 
   // store the data back into persistant memory
-  // EEPROM.put(EEPROM_START_ADDRESS, cal);
-  secretObject::memory_write(cal);
+  EEPROM.put(EEPROM_START_ADDRESS, cal);
 }
 
 
 
 void secretObject::set_angle_max(int16_t angleMax, const char *secret) {
-  // get the memStruc_t structure from persistant memory
-  // EEPROM.get(EEPROM_START_ADDRESS, cal);
-  cal = secretObject::memory_get();
+  // get the Calibration structure from persistant memory
+  EEPROM.get(EEPROM_START_ADDRESS, cal);
 
   // do the precondition check
   if (!secretObject::cal_pre_check(cal, secret)) {
@@ -381,16 +328,14 @@ void secretObject::set_angle_max(int16_t angleMax, const char *secret) {
   secretObject::report_settings();
 
   // store the data back into persistant memory
-  //EEPROM.put(EEPROM_START_ADDRESS, cal);
-  secretObject::memory_write(cal);
+  EEPROM.put(EEPROM_START_ADDRESS, cal);
 }
 
 
 
 void secretObject::set_load_max(int16_t loadMax, const char *secret) {
-  // get the memStruc_t structure from persistant memory
-  // EEPROM.get(EEPROM_START_ADDRESS, cal);
-  cal = secretObject::memory_get();
+  // get the Calibration structure from persistant memory
+  EEPROM.get(EEPROM_START_ADDRESS, cal);
 
   // do the precondition check
   if (!secretObject::cal_pre_check(cal, secret)) {
@@ -415,8 +360,7 @@ void secretObject::set_load_max(int16_t loadMax, const char *secret) {
 
 
   // store the data back into persistant memory
-  //EEPROM.put(EEPROM_START_ADDRESS, cal);
-  secretObject::memory_write(cal);
+  EEPROM.put(EEPROM_START_ADDRESS, cal);
 }
 
 
@@ -437,7 +381,7 @@ void secretObject::report_cal() {
 }
 
 
-// This shouldnt print the global vars it should be passed settingsStruc_tt and only be passed valid data to avoid recalling junk & unterminated arrays from arbritatry memory
+// This shouldnt print the global vars it should be passed settingsStruct and only be passed valid data to avoid recalling junk & unterminated arrays from arbritatry memory
 // this wont avoid people trying to pass it junk, but it will error if passed the struct direct from memory, providing a warning to users who modify this code for their own purposed
 // NO NO NO, as high falutin as this idea was it actually causes way more issues than it solves, and is causing code bloat.
 // Instead it will just report the global vars but USER MUST MAKE SURE DATA HAS ALREADY BEEN CHECKED FOR VALIDITY
