@@ -30,7 +30,7 @@ and recalled via an additional structure
 
 
 #define SECRETOBJECT_VERSION "V1.2.0"  // backwards compatable with 1.0.0
-#define EEPROM_START_ADDRESS 0xFA     // define start point for any persistant memory use
+#define EEPROM_START_ADDRESS 0x10     // define start point for any persistant memory use
 #define FLASH_WRITES_MAX 25            // define number of writes untill firmware must be re-programmed
 #define SECRET_LEN_MAX 9
 
