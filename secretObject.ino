@@ -2,9 +2,9 @@
 
 secretObject memory;
 
-secretObject::calStruc global_cal;
+secretObject::calStruc_t global_cal;
 
-secretObject::settingsStruc global_settings;
+secretObject::settingsStruc_t global_settings;
 
 
 
